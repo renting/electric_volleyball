@@ -1,15 +1,4 @@
-### Requirement: renderPlayer 函式封裝
-系統 SHALL 提供 `renderPlayer(graphics, player)` 函式，作為角色繪製的唯一入口點。呼叫端（GameScene）不得直接呼叫低層繪圖 API 繪製角色。
-
-#### Scenario: 無 texture 時執行 Graphics 繪製
-- **WHEN** `player.texture` 為 `undefined` 或 `null`
-- **THEN** `renderPlayer` 呼叫 `drawMonGraphics(graphics, player)`，以 Phaser Graphics API 繪製角色
-
-#### Scenario: 有 texture 時預留 Sprite 路徑
-- **WHEN** `player.texture` 為非空字串
-- **THEN** `renderPlayer` 執行 Sprite 更新路徑（此 change 範圍內為 `return` 或 `console.warn`，不拋出例外），不執行 Graphics 繪製
-
----
+## MODIFIED Requirements
 
 ### Requirement: drawMonGraphics 視覺保真
 `drawMonGraphics(graphics, player)` SHALL 以 Phaser Graphics API 繪製以下視覺元素：
@@ -52,15 +41,6 @@
 #### Scenario: 起身過渡漸變
 - **WHEN** `player.diveRecover` 由 `DIVE_RECOVER` 遞減至 0
 - **THEN** 身體形變逐幀自扁平延伸線性回復至站姿，過程無跳變
-
----
-
-### Requirement: 每幀重繪機制
-GameScene SHALL 在每幀 `update()` 開頭呼叫 `graphics.clear()`，再依序繪製背景、角色、球、粒子，確保無殘影。
-
-#### Scenario: 移動後無殘影
-- **WHEN** 玩家或球在畫面上移動
-- **THEN** 前一幀的繪製內容不殘留，畫面只顯示當幀位置
 
 ---
 

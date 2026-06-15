@@ -30,6 +30,7 @@
 <div id="hint">
   單人:<kbd>←</kbd><kbd>→</kbd> 移動 <kbd>↑</kbd> 跳躍 <kbd>Space</kbd>/<kbd>Z</kbd> 強力扣殺&nbsp;&nbsp;|&nbsp;&nbsp;
   雙人:P1 <kbd>A</kbd><kbd>D</kbd><kbd>W</kbd> + <kbd>G</kbd> 扣殺,P2 用方向鍵 + <kbd>L</kbd> 扣殺。<br>
+  撲球:球不在身邊時 扣殺鍵 + 左右方向鍵 撲救（1P <kbd>Space</kbd>/<kbd>Z</kbd> + <kbd>←</kbd>/<kbd>→</kbd>,P1 <kbd>G</kbd> + <kbd>A</kbd>/<kbd>D</kbd>,P2 <kbd>L</kbd> + <kbd>←</kbd>/<kbd>→</kbd>)<br>
   <kbd>P</kbd>/<kbd>Esc</kbd> 暫停 ・ <kbd>R</kbd> 重新開始 ・ 先得 15 分獲勝!
 </div>
 <script>
@@ -40,6 +41,7 @@ const W = 900, H = 500;
 const GROUND = H - 46;
 const NET_X = W / 2, NET_W = 10, NET_TOP = GROUND - 170;
 const WIN_SCORE = 15;
+const DIVE_TIME = 14, DIVE_SPD = 9, DIVE_RECOVER = 16;
 
 // ── 音效 ──────────────────────────────────────────────────────────
 let actx = null;
@@ -63,6 +65,7 @@ function makePlayer(side) {
     y: GROUND, vy: 0,
     onGround: true,
     hitCooldown: 0, smashFlash: 0,
+    diveT: 0, diveRecover: 0, diveDir: side === 0 ? 1 : -1,
     face: side === 0 ? 1 : -1,
     aiHitDelay: 0,
     texture: null,
@@ -130,27 +133,47 @@ function renderPlayer(g, player) {
 }
 
 function drawMonGraphics(g, player) {
-  const {x, y, r, face: f, onGround, smashFlash, color1, color2} = player;
+  const {x, y, r, onGround, smashFlash, color1, color2} = player;
   const squash = onGround ? 1 : 0.92;
-  const cy = y - r * squash; // 身體中心 Y
 
-  // 投影
+  // ── 形變參數（hs 水平、vs 垂直）與身體中心（bx, by）──
+  // 非撲球狀態：hs=1, vs=1, (bx,by)=(x, y-r*squash)，與原版完全一致。
+  let f = player.face;
+  let hs = 1, vs = 1;
+  let bx = x, by = y - r * squash;
+  if (player.diveT > 0) {
+    // 位移階段：固定撲球姿態（水平 ×1.6、垂直 ×0.5、貼地）
+    f = player.diveDir;
+    hs = 1.6; vs = 0.5;
+    bx = x + player.diveDir * r * 0.45;
+    by = GROUND - r * 0.55;
+  } else if (player.diveRecover > 0) {
+    // 起身階段：以 t=diveRecover/DIVE_RECOVER（1→0）線性插值回站姿
+    f = player.diveDir;
+    const t = player.diveRecover / DIVE_RECOVER;
+    hs = 1 + 0.6 * t;
+    vs = 1 - 0.5 * t;
+    bx = x + player.diveDir * r * 0.45 * t;
+    by = (GROUND - r) + r * 0.45 * t;
+  }
+
+  // 投影（寬度隨水平延伸同步加寬）
   g.fillStyle(0x000000, 0.15);
-  g.fillEllipse(x, GROUND+8, r*1.8, 14);
+  g.fillEllipse(bx, GROUND+8, r*1.8*hs, 14);
 
   // 閃電尾巴
-  const tx=x-f*r*0.85, ty=cy+6;
+  const tx=bx-f*r*0.85*hs, ty=by+6*vs;
   g.fillStyle(color2, 1);
   const tail=[
-    {x:tx,        y:ty},
-    {x:tx-f*14,   y:ty-10},
-    {x:tx-f*8,    y:ty-12},
-    {x:tx-f*22,   y:ty-26},
-    {x:tx-f*12,   y:ty-24},
-    {x:tx-f*20,   y:ty-40},
-    {x:tx-f*2,    y:ty-20},
-    {x:tx-f*8,    y:ty-18},
-    {x:tx+f*2,    y:ty-6}
+    {x:tx,           y:ty},
+    {x:tx-f*14*hs,   y:ty-10*vs},
+    {x:tx-f*8*hs,    y:ty-12*vs},
+    {x:tx-f*22*hs,   y:ty-26*vs},
+    {x:tx-f*12*hs,   y:ty-24*vs},
+    {x:tx-f*20*hs,   y:ty-40*vs},
+    {x:tx-f*2*hs,    y:ty-20*vs},
+    {x:tx-f*8*hs,    y:ty-18*vs},
+    {x:tx+f*2*hs,    y:ty-6*vs}
   ];
   g.beginPath(); g.moveTo(tail[0].x, tail[0].y);
   for(let i=1;i<tail.length;i++) g.lineTo(tail[i].x, tail[i].y);
@@ -159,8 +182,8 @@ function drawMonGraphics(g, player) {
   // 耳朵
   g.fillStyle(color1, 1);
   for(const s of [-1,1]){
-    const pts1 = qBez(x+s*r*0.45, cy-r*0.55, x+s*r*0.95, cy-r*1.5,  x+s*r*0.55, cy-r*1.45);
-    const pts2 = qBez(x+s*r*0.55, cy-r*1.45, x+s*r*0.2,  cy-r*1.1,  x+s*r*0.1,  cy-r*0.7);
+    const pts1 = qBez(bx+s*r*0.45*hs, by-r*0.55*vs, bx+s*r*0.95*hs, by-r*1.5*vs,  bx+s*r*0.55*hs, by-r*1.45*vs);
+    const pts2 = qBez(bx+s*r*0.55*hs, by-r*1.45*vs, bx+s*r*0.2*hs,  by-r*1.1*vs,  bx+s*r*0.1*hs,  by-r*0.7*vs);
     g.beginPath(); g.moveTo(pts1[0].x, pts1[0].y);
     pts1.forEach(p=>g.lineTo(p.x,p.y));
     pts2.slice(1).forEach(p=>g.lineTo(p.x,p.y));
@@ -169,35 +192,35 @@ function drawMonGraphics(g, player) {
 
   // 身體
   g.fillStyle(color1, 1);
-  g.fillEllipse(x, cy, r*2, r*2*squash);
+  g.fillEllipse(bx, by, r*2*hs, r*2*squash*vs);
 
   // 肚子
   g.fillStyle(0xffffff, 0.45);
-  g.fillEllipse(x, cy+r*0.35, r*1.1, r*0.9);
+  g.fillEllipse(bx, by+r*0.35*vs, r*1.1*hs, r*0.9*vs);
 
   // 臉頰
   g.fillStyle(0xff7a3d, 1);
-  g.fillCircle(x+f*r*0.55-f*4, cy+r*0.08, 7.5);
-  g.fillCircle(x-f*r*0.35,     cy+r*0.1,  6);
+  g.fillCircle(bx+(f*r*0.55-f*4)*hs, by+r*0.08*vs, 7.5);
+  g.fillCircle(bx-f*r*0.35*hs,       by+r*0.1*vs,  6);
 
   // 眼睛
   g.fillStyle(0x23272e, 1);
-  g.fillCircle(x+f*r*0.32,  cy-r*0.22, 4.6);
-  g.fillCircle(x-f*r*0.05,  cy-r*0.2,  4.2);
+  g.fillCircle(bx+f*r*0.32*hs,  by-r*0.22*vs, 4.6);
+  g.fillCircle(bx-f*r*0.05*hs,  by-r*0.2*vs,  4.2);
   g.fillStyle(0xffffff, 1);
-  g.fillCircle(x+f*r*0.34,  cy-r*0.26, 1.6);
-  g.fillCircle(x-f*r*0.03,  cy-r*0.24, 1.4);
+  g.fillCircle(bx+f*r*0.34*hs,  by-r*0.26*vs, 1.6);
+  g.fillCircle(bx-f*r*0.03*hs,  by-r*0.24*vs, 1.4);
 
   // 嘴巴
   g.lineStyle(2, 0x23272e, 1);
   g.beginPath();
-  g.arc(x+f*r*0.16, cy-r*0.02, 5, 0.15*Math.PI, 0.85*Math.PI, false);
+  g.arc(bx+f*r*0.16*hs, by-r*0.02*vs, 5, 0.15*Math.PI, 0.85*Math.PI, false);
   g.strokePath();
 
   // 扣殺閃光
   if(smashFlash > 0){
     g.lineStyle(4, 0xffe63c, smashFlash/12);
-    g.strokeCircle(x, cy, r+10+(12-smashFlash)*2);
+    g.strokeCircle(bx, by, r+10+(12-smashFlash)*2);
   }
 }
 
@@ -221,8 +244,9 @@ class MenuScene extends Phaser.Scene {
     TS('按 2 ─ 單人（困難）',       W/2, 275, 24, '#ffffff');
     TS('按 3 ─ 雙人對戰',           W/2, 315, 24, '#ffffff');
     TS('讓球落在對方場地就得分，先拿 15 分獲勝！', W/2, 370, 16, '#ccddff', false);
-    TS('靠近球時按扣殺鍵，使出強力殺球！',        W/2, 396, 16, '#ccddff', false);
-    TS('遊戲中按 P / Esc 暫停，按 R 重新開始',   W/2, 422, 16, '#ccddff', false);
+    TS('靠近球時按扣殺鍵，使出強力殺球！',        W/2, 392, 16, '#ccddff', false);
+    TS('球不在身邊時，扣殺鍵 + 左右方向鍵 可撲球救球！', W/2, 416, 16, '#ccddff', false);
+    TS('遊戲中按 P / Esc 暫停，按 R 重新開始',   W/2, 440, 16, '#ccddff', false);
 
     this.input.keyboard.on('keydown-ONE',   ()=>this._start('1P','normal'));
     this.input.keyboard.on('keydown-TWO',   ()=>this._start('1P','hard'));
@@ -321,7 +345,7 @@ class GameScene extends Phaser.Scene {
 
   _resetRally(side){
     this.players[0].x = W*0.25; this.players[1].x = W*0.75;
-    this.players.forEach(p=>{ p.y=GROUND; p.vy=0; p.onGround=true; });
+    this.players.forEach(p=>{ p.y=GROUND; p.vy=0; p.onGround=true; p.diveT=0; p.diveRecover=0; });
     this.ball.x = side===0 ? W*0.25 : W*0.75;
     this.ball.y=110; this.ball.vx=0; this.ball.vy=0; this.ball.spin=0;
     this.serveTimer=50;
@@ -334,9 +358,13 @@ class GameScene extends Phaser.Scene {
     }
   }
 
-  _tryPowerHit(p){
+  _inHitRange(p){
     const dx=this.ball.x-p.x, dy=this.ball.y-(p.y-p.r*0.4);
-    if(Math.hypot(dx,dy) < p.r+this.ball.r+24){
+    return Math.hypot(dx,dy) < p.r+this.ball.r+24;
+  }
+
+  _tryPowerHit(p){
+    if(this._inHitRange(p)){
       const dir=p.side===0?1:-1;
       const aimDown=this.ball.y<NET_TOP+30?0.85:0.25;
       this.ball.vx=dir*(11+Math.random()*3);
@@ -362,11 +390,25 @@ class GameScene extends Phaser.Scene {
   }
 
   _controlHuman(p,left,right,up,hit){
+    // 撲球位移／起身硬直期間輸入鎖定
+    if(p.diveT>0 || p.diveRecover>0) return;
     const SPD=5.4;
     if(left.isDown)  { p.x-=SPD; p.face=-1; }
     if(right.isDown) { p.x+=SPD; p.face=1; }
     if(up.isDown && p.onGround){ p.vy=-13.5; p.onGround=false; beep(330,.05,'sine',.06); }
-    if(hit && hit.isDown && p.hitCooldown<=0) this._tryPowerHit(p);
+    if(hit && hit.isDown && p.hitCooldown<=0){
+      // 恰好按住一個左右方向鍵（同時按住左右視為無方向）
+      const dirHeld = (left.isDown===right.isDown) ? 0 : (left.isDown ? -1 : 1);
+      if(this._inHitRange(p))                                          this._tryPowerHit(p);
+      else if(this.state==='play' && p.onGround && dirHeld!==0)        this._startDive(p, dirHeld);
+      else                                                             p.hitCooldown=10;
+    }
+  }
+
+  _startDive(p, dir){
+    p.diveT=DIVE_TIME; p.diveDir=dir; p.face=dir;
+    beep(300,.07,'square',.12);
+    this._burst(p.x, GROUND-4, 0xe0bf66, 8);
   }
 
   _controlAI(p){
@@ -398,6 +440,13 @@ class GameScene extends Phaser.Scene {
     for(const p of this.players){
       p.vy+=0.7; p.y+=p.vy;
       if(p.y>=GROUND){ p.y=GROUND; p.vy=0; p.onGround=true; }
+      // 撲球位移與起身硬直步進
+      if(p.diveT>0){
+        p.x += p.diveDir*DIVE_SPD;
+        if(--p.diveT<=0) p.diveRecover=DIVE_RECOVER;
+      } else if(p.diveRecover>0){
+        p.diveRecover--;
+      }
       const minX=p.side===0?p.r:NET_X+NET_W/2+p.r;
       const maxX=p.side===0?NET_X-NET_W/2-p.r:W-p.r;
       p.x=Math.max(minX, Math.min(maxX,p.x));
@@ -428,17 +477,37 @@ class GameScene extends Phaser.Scene {
 
     // 玩家碰撞
     for(const p of this.players){
-      const cx=p.x, cy=p.y-p.r*0.4;
+      const diving = p.diveT>0 || p.diveRecover>0;
+      // 單次觸球閘門：撲球狀態下 hitCooldown>0（墊球後）不再與球碰撞
+      if(diving && p.hitCooldown>0) continue;
+      // 自己半場限制：撲球判定區僅對球心在自己半場的球生效，否則改用站立判定圓
+      const ballOwnSide = p.side===0 ? b.x<NET_X : b.x>NET_X;
+      const useDive = diving && ballOwnSide;
+      const cx = useDive ? p.x + p.diveDir*p.r*0.7 : p.x;
+      const cy = useDive ? p.y - p.r*0.5           : p.y - p.r*0.4;
       const dx=b.x-cx, dy=b.y-cy;
       const dist=Math.hypot(dx,dy), minD=p.r+b.r;
       if(dist<minD&&dist>0.001){
         const nx=dx/dist, ny=dy/dist;
         b.x=cx+nx*minD; b.y=cy+ny*minD;
-        const speed=Math.max(8.5, Math.hypot(b.vx,b.vy)*0.85);
-        b.vx=nx*speed*0.95; b.vy=ny*speed-4.5+p.vy*0.35;
-        if(b.vy>-2&&ny<0.2) b.vy=-6;
-        this._burst(b.x,b.y,0xffffff,6);
-        beep(600+Math.random()*120,.05,'triangle',.1);
+        if(useDive && p.diveT>0){
+          // 位移階段墊球回擊：固定高彈起、水平大幅減弱
+          if(b.y>GROUND-b.r-1) b.y=GROUND-b.r-1;   // 墊球優先於同幀落地判定
+          b.vy=-11;
+          b.vx=p.diveDir*3 + b.vx*0.25;
+          b.spin=p.diveDir*0.25;
+          p.smashFlash=8;
+          p.diveT=0; p.diveRecover=DIVE_RECOVER; p.hitCooldown=DIVE_RECOVER;
+          this._burst(b.x,b.y,0xfff3b0,10);
+          beep(480,.08,'triangle',.12);
+        } else {
+          // 一般碰撞速度轉移（站立、起身硬直自然結束、對側球皆適用）
+          const speed=Math.max(8.5, Math.hypot(b.vx,b.vy)*0.85);
+          b.vx=nx*speed*0.95; b.vy=ny*speed-4.5+p.vy*0.35;
+          if(b.vy>-2&&ny<0.2) b.vy=-6;
+          this._burst(b.x,b.y,0xffffff,6);
+          beep(600+Math.random()*120,.05,'triangle',.1);
+        }
       }
     }
 
@@ -476,9 +545,8 @@ class GameScene extends Phaser.Scene {
         this._controlHuman(this.players[0], this.kbd.a, this.kbd.d, this.kbd.w, this.kbd.g);
         this._controlHuman(this.players[1], this.kbd.left, this.kbd.right, this.kbd.up, this.kbd.l);
       } else {
-        this._controlHuman(this.players[0], this.kbd.left, this.kbd.right, this.kbd.up, null);
-        if((this.kbd.space.isDown||this.kbd.z.isDown)&&this.players[0].hitCooldown<=0)
-          this._tryPowerHit(this.players[0]);
+        const p1hit = {isDown: this.kbd.space.isDown || this.kbd.z.isDown};
+        this._controlHuman(this.players[0], this.kbd.left, this.kbd.right, this.kbd.up, p1hit);
         this._controlAI(this.players[1]);
       }
     }

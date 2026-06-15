@@ -1,21 +1,4 @@
-### Requirement: GameScene 狀態機
-`GameScene` SHALL 實作與現有版本一致的五狀態機：`serve → play → point → over`，加上 `paused` 旗標（非獨立狀態）。
-
-狀態轉換規則：
-- `serve`：倒數 50 幀後轉 `play`
-- `play`：球落地後依得分判斷轉 `point` 或 `over`
-- `point`：倒數 60 幀後轉 `serve`（換邊）
-- `over`：等待玩家按 `Enter`/點擊（→ MenuScene）或 `R`（→ 重新開始）
-
-#### Scenario: serve 倒數結束
-- **WHEN** GameScene 進入 `serve` 狀態且已過 50 幀
-- **THEN** 狀態轉為 `play`，球開始受物理影響
-
-#### Scenario: 球落地得分
-- **WHEN** `play` 狀態中球的 `y >= GROUND - ball.r`
-- **THEN** 對應方得分加一，狀態轉為 `point`（未達 15 分）或 `over`（達 15 分）
-
----
+## MODIFIED Requirements
 
 ### Requirement: 輸入系統使用 Phaser Keyboard API
 `GameScene` SHALL 以 `this.input.keyboard.addKeys({...})` 建立按鍵映射。
@@ -76,39 +59,3 @@
 #### Scenario: 玩家不可越過網子
 - **WHEN** 玩家移動至網子邊緣
 - **THEN** 玩家 `x` 被限制在 `NET_X ± (NET_W/2 + player.r)` 範圍內
-
----
-
-### Requirement: AI 邏輯完整保留
-單人模式下，P2 的 AI 行為（移動追球、跳躍時機、`tryPowerHit` 機率）SHALL 與現有版本一致，包含普通與困難兩個難度的速度與命中率差異。
-
-#### Scenario: AI 困難模式速度
-- **WHEN** 選擇 `aiLevel:'hard'`，AI 控制的 P2 移動
-- **THEN** 每幀移動速度為 5.6（普通模式為 4.6）
-
----
-
-### Requirement: 粒子系統保留自製邏輯
-粒子系統 SHALL 維持現有自製陣列實作（`burst()`、`stepParticles()`），在 `GameScene.update()` 中每幀更新，並以 Phaser Graphics 繪製。
-
-#### Scenario: 得分時爆炸粒子
-- **WHEN** 球落地得分
-- **THEN** 落點位置產生約 26 個橙色粒子，向四周擴散並逐幀消亡
-
----
-
-### Requirement: 得分顯示
-GameScene SHALL 在畫面上方顯示雙方即時分數與標籤（YOU/COM 或 PLAYER 1/PLAYER 2），字體大小與位置與現有版本一致。
-
-#### Scenario: 得分更新顯示
-- **WHEN** 任一方得分
-- **THEN** 對應的分數 Text 物件即時更新為新數字
-
----
-
-### Requirement: 畫面震動效果
-得分或強力扣殺觸發時，GameScene SHALL 模擬畫面震動效果（`shakeT` 倒數幀數內隨機偏移 camera 或 Graphics 位置）。
-
-#### Scenario: 強力扣殺觸發震動
-- **WHEN** `tryPowerHit` 成功命中
-- **THEN** 後續 8 幀內畫面有隨機偏移震動效果
