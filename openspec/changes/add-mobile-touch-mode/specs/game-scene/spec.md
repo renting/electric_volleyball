@@ -1,3 +1,29 @@
+## ADDED Requirements
+
+### Requirement: 球體尺寸放大
+球的半徑 `ball.r` SHALL 由原本的 17 放大為 22，以提升手機與桌面的可視性。放大後的半徑 MUST 一致套用於碰撞偵測、網子判定、落地判定與繪製，維持物理一致性。
+
+#### Scenario: 球以放大尺寸渲染與碰撞
+- **WHEN** 任一回合進行中
+- **THEN** 球以半徑 22 繪製，且玩家碰撞、牆面/網子反彈、落地得分皆以相同半徑計算
+
+---
+
+### Requirement: 扣殺彗星殘影
+`GameScene` SHALL 為球維護近期球心位置的軌跡陣列（`ball.trail`，上限約 16 筆，每物理幀記錄一次），並據此在球後方繪製漸層淡出的殘影。強力扣殺（`_tryPowerHit` 成功命中）SHALL 觸發殘影強度計時器（`ball.smash`），使殘影最為明顯並呈現黃→橘的彗星漸層；非扣殺但高速飛行時 SHALL 顯示較淡的拖尾；低速時不顯示。每回合重置（`_resetRally`）SHALL 清空軌跡與計時器。殘影 MUST 繪製於球體之下、不得遮蓋球本體，且不影響任何物理計算。
+
+#### Scenario: 扣殺出現彗星殘影
+- **WHEN** 玩家成功觸發強力扣殺、球高速飛出
+- **THEN** 球後方出現黃→橘漸層、由尾至頭逐漸變亮變大的彗星殘影
+
+#### Scenario: 低速時不顯示殘影
+- **WHEN** 球以低速移動（例如發球前或輕墊球）
+- **THEN** 不繪製彗星殘影
+
+#### Scenario: 回合重置清空殘影
+- **WHEN** 得分後進入下一回合（`_resetRally`）
+- **THEN** `ball.trail` 與 `ball.smash` 被清空，畫面不殘留上一球的拖尾
+
 ## MODIFIED Requirements
 
 ### Requirement: 輸入系統使用 Phaser Keyboard API

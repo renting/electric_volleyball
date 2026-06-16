@@ -34,12 +34,19 @@
   /* 觸控操作面板 overlay */
   #touchPanel{ position:absolute; inset:0; z-index:5; pointer-events:none; }
   #touchPanel.hidden{ display:none; }
-  #padLeft{
-    position:absolute; left:max(16px,env(safe-area-inset-left));
-    bottom:max(16px,env(safe-area-inset-bottom));
-    display:flex; flex-direction:column; align-items:center; gap:10px;
+  #stick{
+    position:absolute; left:max(20px,env(safe-area-inset-left));
+    bottom:max(20px,env(safe-area-inset-bottom));
+    width:148px; height:148px; border-radius:50%;
+    background:rgba(255,255,255,.16); box-shadow:inset 0 0 0 2px rgba(255,255,255,.22);
+    pointer-events:auto; touch-action:none;
+    user-select:none; -webkit-user-select:none; -webkit-tap-highlight-color:transparent;
   }
-  #padLeft .lr{ display:flex; gap:16px; }
+  #stickKnob{
+    position:absolute; left:50%; top:50%; width:66px; height:66px; margin:-33px 0 0 -33px;
+    border-radius:50%; background:rgba(255,255,255,.4); box-shadow:0 2px 8px rgba(0,0,0,.3);
+    will-change:transform; pointer-events:none;
+  }
   #padRight{
     position:absolute; right:max(16px,env(safe-area-inset-right));
     bottom:max(16px,env(safe-area-inset-bottom));
@@ -68,13 +75,7 @@
 <h1>⚡ 電氣鼠排球大作戰 <span class="bolt">PIKA VOLLEY</span> ⚡</h1>
 <div id="wrap">
   <div id="touchPanel" class="hidden" aria-hidden="true">
-    <div id="padLeft">
-      <button class="tbtn" type="button" data-key="up" aria-label="跳躍">▲</button>
-      <div class="lr">
-        <button class="tbtn" type="button" data-key="left" aria-label="左移">◀</button>
-        <button class="tbtn" type="button" data-key="right" aria-label="右移">▶</button>
-      </div>
-    </div>
+    <div id="stick" aria-label="移動搖桿（左右移動，上推跳躍）"><div id="stickKnob"></div></div>
     <div id="padRight">
       <button class="tbtn tbtn-hit" type="button" data-key="hit" aria-label="扣殺或撲球">扣殺</button>
     </div>
@@ -316,7 +317,7 @@ class MenuScene extends Phaser.Scene {
       o1.setInteractive({ useHandCursor:true }).on('pointerdown', ()=>this._start('1P','normal'));
       o2.setInteractive({ useHandCursor:true }).on('pointerdown', ()=>this._start('1P','hard'));
       TS('讓球落在對方場地就得分，先拿 15 分獲勝！',           W/2, 375, 16, '#ccddff', false);
-      TS('靠近球按扣殺鈕強殺；球遠離時 扣殺鈕 + 方向鈕 可撲救！', W/2, 408, 14, '#ccddff', false);
+      TS('搖桿左右移動、上推跳躍；靠近球按扣殺鈕強殺，球遠離時 搖桿方向 + 扣殺鈕 撲救！', W/2, 408, 13, '#ccddff', false);
       TS('點選上方選項開始遊戲',                              W/2, 440, 16, '#ccddff', false);
     } else {
       TS('按 1 ─ 單人（普通）',       W/2, 235, 24, '#ffffff');
@@ -360,7 +361,7 @@ class GameScene extends Phaser.Scene {
     this.particles = [];
     this.clouds    = [{x:120,y:70,s:1},{x:420,y:110,s:.7},{x:700,y:60,s:1.2},{x:830,y:140,s:.6}];
     this.players   = [makePlayer(0), makePlayer(1)];
-    this.ball      = { x:0, y:0, vx:0, vy:0, r:17, spin:0 };
+    this.ball      = { x:0, y:0, vx:0, vy:0, r:22, spin:0, trail:[], smash:0 };
     this.serveTimer = 0; this.pointTimer = 0; this.pointSide = 0;
 
     this._resetRally(Math.random() < 0.5 ? 0 : 1);
@@ -424,6 +425,7 @@ class GameScene extends Phaser.Scene {
     this.players.forEach(p=>{ p.y=GROUND; p.vy=0; p.onGround=true; p.diveT=0; p.diveRecover=0; });
     this.ball.x = side===0 ? W*0.25 : W*0.75;
     this.ball.y=110; this.ball.vx=0; this.ball.vy=0; this.ball.spin=0;
+    this.ball.trail.length=0; this.ball.smash=0;
     this.serveTimer=50;
   }
 
@@ -447,6 +449,7 @@ class GameScene extends Phaser.Scene {
       this.ball.vy=-3+aimDown*12*Math.random()+(this.ball.y<NET_TOP?6:-6);
       this.ball.spin=dir*0.5;
       p.hitCooldown=18; p.smashFlash=12;
+      this.ball.smash=26;   // 觸發彗星殘影
       this.cameras.main.shake(133, 0.005);
       this._burst(this.ball.x, this.ball.y, 0xffd92e, 14);
       beep(180,.12,'sawtooth',.18); beep(90,.15,'square',.12);
@@ -546,6 +549,10 @@ class GameScene extends Phaser.Scene {
 
     // 球
     b.vy+=0.42; b.x+=b.vx; b.y+=b.vy; b.spin*=0.99;
+    // 彗星殘影軌跡：記錄近期球心位置
+    b.trail.push({x:b.x, y:b.y});
+    if(b.trail.length>16) b.trail.shift();
+    if(b.smash>0) b.smash--;
 
     if(b.x<b.r)    { b.x=b.r;   b.vx=Math.abs(b.vx)*0.9;  beep(440,.04); }
     if(b.x>W-b.r)  { b.x=W-b.r; b.vx=-Math.abs(b.vx)*0.9; beep(440,.04); }
@@ -659,6 +666,19 @@ class GameScene extends Phaser.Scene {
     const sh=Math.max(0.25, 1-(GROUND-b.y)/360);
     g.fillStyle(0x000000, 0.18*sh);
     g.fillEllipse(b.x, GROUND+8, (b.r*sh+6)*2, 10);
+    // 彗星殘影：扣殺時最明顯（黃→橘漸層），高速飛行時亦淡淡拖尾
+    const bspd=Math.hypot(b.vx,b.vy);
+    const strength=b.smash>0 ? 1 : Math.max(0, Math.min(1, (bspd-7)/8));
+    if(strength>0.12 && b.trail.length>1){
+      const n=b.trail.length;
+      for(let i=0;i<n-1;i++){
+        const t=i/(n-1);                       // 0=最舊（尾）→1=最新（頭）
+        const p=b.trail[i];
+        const col=b.smash>0 ? lerpColor(0xffe98a, 0xff6a2e, t) : 0xfff3b0;
+        g.fillStyle(col, strength*0.55*t);
+        g.fillCircle(p.x, p.y, b.r*(0.3+0.65*t));
+      }
+    }
     g.fillStyle(0xffffff,1); g.fillCircle(b.x,b.y,b.r);
     const ba=b.spin*this.time.now*0.004;
     g.fillStyle(0xff5c5c,1);
@@ -720,14 +740,24 @@ new Phaser.Game({
   const rotate = document.getElementById('rotateNotice');
   const touch  = isTouchDevice();
 
+  const stick = document.getElementById('stick');
+  const knob  = document.getElementById('stickKnob');
+
+  // 搖桿歸位：放開或進入橫向閘門時清空方向輸入並回正旋鈕。
+  function stickReset(){
+    if(knob) knob.style.transform = 'translate(0px,0px)';
+    touchInput.left = touchInput.right = touchInput.up = false;
+  }
+
   if (touch) {
     document.body.classList.add('touch');
     panel.classList.remove('hidden');           // 僅觸控裝置顯示面板
+
+    // 動作鈕（扣殺/撲球）：獨立追蹤，支援與搖桿同時操作。
     panel.querySelectorAll('.tbtn').forEach(btn => {
       const key = btn.dataset.key;
       const press   = () => { touchInput[key] = true;  btn.classList.add('active'); };
       const release = () => { touchInput[key] = false; btn.classList.remove('active'); };
-      // touchstart 阻止瀏覽器捲動/縮放/長按；多點觸控下各鈕獨立追蹤。
       btn.addEventListener('touchstart',  e => { e.preventDefault(); press();   }, { passive:false });
       btn.addEventListener('touchend',    e => { e.preventDefault(); release(); }, { passive:false });
       btn.addEventListener('touchcancel', release);
@@ -735,13 +765,42 @@ new Phaser.Game({
       btn.addEventListener('pointerup',   release);
       btn.addEventListener('pointerleave',release);  // 滑出邊界即釋放，避免卡鍵
     });
+
+    // 移動搖桿：類比偏移映射為布林 left/right/up（過門檻才觸發），
+    // 使 _controlHuman 與所有玩法數值維持不變。上推 = 跳躍。
+    const RADIUS = 56, DEAD = 16;
+    let stickId = null;
+    const stickMove = (cx, cy) => {
+      const r = stick.getBoundingClientRect();
+      let dx = cx - (r.left + r.width / 2);
+      let dy = cy - (r.top  + r.height / 2);
+      const dist = Math.hypot(dx, dy);
+      if (dist > RADIUS) { dx *= RADIUS / dist; dy *= RADIUS / dist; }
+      knob.style.transform = `translate(${dx}px,${dy}px)`;
+      touchInput.left  = dx < -DEAD;
+      touchInput.right = dx >  DEAD;
+      touchInput.up    = dy < -DEAD;
+    };
+    stick.addEventListener('touchstart', e => e.preventDefault(), { passive:false });
+    stick.addEventListener('pointerdown', e => {
+      stickId = e.pointerId;
+      if (stick.setPointerCapture) stick.setPointerCapture(e.pointerId);
+      stickMove(e.clientX, e.clientY);
+    });
+    stick.addEventListener('pointermove', e => {
+      if (e.pointerId !== stickId) return;       // 只追蹤啟動搖桿的那根手指
+      stickMove(e.clientX, e.clientY);
+    });
+    const stickEnd = e => { if (e.pointerId === stickId) { stickId = null; stickReset(); } };
+    stick.addEventListener('pointerup',     stickEnd);
+    stick.addEventListener('pointercancel', stickEnd);
   }
 
   function updateOrientation(){
     const portrait = window.matchMedia && window.matchMedia('(orientation: portrait)').matches;
     const show = touch && portrait;
     rotate.classList.toggle('hidden', !show);
-    if (show) { touchInput.left = touchInput.right = touchInput.up = touchInput.hit = false; }
+    if (show) { stickReset(); touchInput.hit = false; }   // 直向暫停輸入
   }
   if (window.matchMedia) {
     const mq = window.matchMedia('(orientation: portrait)');
