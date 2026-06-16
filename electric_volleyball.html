@@ -34,14 +34,18 @@
   /* 觸控操作面板 overlay */
   #touchPanel{ position:absolute; inset:0; z-index:5; pointer-events:none; }
   #touchPanel.hidden{ display:none; }
-  #stick{
-    position:absolute; left:max(20px,env(safe-area-inset-left));
-    bottom:max(20px,env(safe-area-inset-bottom));
-    width:148px; height:148px; border-radius:50%;
-    background:rgba(255,255,255,.16); box-shadow:inset 0 0 0 2px rgba(255,255,255,.22);
+  /* 浮動搖桿：整個左側為觸碰啟動區，搖桿出現在手指按下處 */
+  #stickZone{
+    position:absolute; left:0; bottom:0; width:50%; height:100%;
     pointer-events:auto; touch-action:none;
     user-select:none; -webkit-user-select:none; -webkit-tap-highlight-color:transparent;
   }
+  #stick{
+    position:absolute; display:none; width:148px; height:148px; border-radius:50%;
+    background:rgba(255,255,255,.16); box-shadow:inset 0 0 0 2px rgba(255,255,255,.22);
+    pointer-events:none;
+  }
+  #stick.on{ display:block; }
   #stickKnob{
     position:absolute; left:50%; top:50%; width:66px; height:66px; margin:-33px 0 0 -33px;
     border-radius:50%; background:rgba(255,255,255,.4); box-shadow:0 2px 8px rgba(0,0,0,.3);
@@ -75,7 +79,9 @@
 <h1>⚡ 電氣鼠排球大作戰 <span class="bolt">PIKA VOLLEY</span> ⚡</h1>
 <div id="wrap">
   <div id="touchPanel" class="hidden" aria-hidden="true">
-    <div id="stick" aria-label="移動搖桿（左右移動，上推跳躍）"><div id="stickKnob"></div></div>
+    <div id="stickZone" aria-label="移動搖桿區（觸碰拖曳：左右移動、上推跳躍）">
+      <div id="stick"><div id="stickKnob"></div></div>
+    </div>
     <div id="padRight">
       <button class="tbtn tbtn-hit" type="button" data-key="hit" aria-label="扣殺或撲球">扣殺</button>
     </div>
@@ -329,6 +335,9 @@ class MenuScene extends Phaser.Scene {
       TS('遊戲中按 P / Esc 暫停，按 R 重新開始',   W/2, 440, 16, '#ccddff', false);
       this.input.on('pointerdown',            ()=>this._start('1P','normal'));
     }
+
+    // 選單畫面隱藏觸控面板，避免搖桿區擋住可點選項
+    if (window.__setTouchControls) window.__setTouchControls(false);
   }
 
   _start(mode, aiLevel){
@@ -625,6 +634,7 @@ class GameScene extends Phaser.Scene {
   update(){
     // 暫停
     if(this.paused){
+      if(window.__setTouchControls) window.__setTouchControls(false);  // 暫停隱藏控制
       this.overlayGfx.clear();
       this.overlayGfx.fillStyle(0x14213e,0.6); this.overlayGfx.fillRect(0,0,W,H);
       this.pauseTitle.setVisible(true); this.pauseHint.setVisible(true);
@@ -632,6 +642,8 @@ class GameScene extends Phaser.Scene {
       return;
     }
     this.pauseTitle.setVisible(false); this.pauseHint.setVisible(false);
+    // 遊戲進行中顯示觸控面板；結束畫面隱藏，讓點擊可返回選單
+    if(window.__setTouchControls) window.__setTouchControls(this.state!=='over');
 
     // 控制
     if(this.state==='play'||this.state==='serve'){
@@ -740,18 +752,27 @@ new Phaser.Game({
   const rotate = document.getElementById('rotateNotice');
   const touch  = isTouchDevice();
 
+  const zone  = document.getElementById('stickZone');
   const stick = document.getElementById('stick');
   const knob  = document.getElementById('stickKnob');
 
-  // 搖桿歸位：放開或進入橫向閘門時清空方向輸入並回正旋鈕。
+  // 搖桿歸位：放開或暫停/橫向閘門時收起搖桿並清空方向輸入。
   function stickReset(){
-    if(knob) knob.style.transform = 'translate(0px,0px)';
+    if(knob)  knob.style.transform = 'translate(0px,0px)';
+    if(stick) stick.classList.remove('on');
     touchInput.left = touchInput.right = touchInput.up = false;
   }
 
+  // 顯示/隱藏整個觸控面板（由場景依狀態呼叫；隱藏時一併清空輸入避免卡鍵）。
+  function setTouchControls(visible){
+    if(!touch) return;
+    panel.classList.toggle('hidden', !visible);
+    if(!visible){ stickReset(); touchInput.hit = false; }
+  }
+  window.__setTouchControls = setTouchControls;
+
   if (touch) {
     document.body.classList.add('touch');
-    panel.classList.remove('hidden');           // 僅觸控裝置顯示面板
 
     // 動作鈕（扣殺/撲球）：獨立追蹤，支援與搖桿同時操作。
     panel.querySelectorAll('.tbtn').forEach(btn => {
@@ -766,14 +787,12 @@ new Phaser.Game({
       btn.addEventListener('pointerleave',release);  // 滑出邊界即釋放，避免卡鍵
     });
 
-    // 移動搖桿：類比偏移映射為布林 left/right/up（過門檻才觸發），
-    // 使 _controlHuman 與所有玩法數值維持不變。上推 = 跳躍。
-    const RADIUS = 64, DEAD = 30;   // 加大死區，降低靈敏度、較好操控
-    let stickId = null;
-    const stickMove = (cx, cy) => {
-      const r = stick.getBoundingClientRect();
-      let dx = cx - (r.left + r.width / 2);
-      let dy = cy - (r.top  + r.height / 2);
+    // 浮動搖桿：以「手指按下處」為原點，相對位移過門檻才映射為布林
+    // left/right/up，使 _controlHuman 與所有玩法數值維持不變。上推 = 跳躍。
+    const RADIUS = 60, DEAD = 24;   // 死區相對「按下原點」計算，較不靈敏、好操控
+    let stickId = null, originX = 0, originY = 0;
+    const stickUpdate = (cx, cy) => {
+      let dx = cx - originX, dy = cy - originY;
       const dist = Math.hypot(dx, dy);
       if (dist > RADIUS) { dx *= RADIUS / dist; dy *= RADIUS / dist; }
       knob.style.transform = `translate(${dx}px,${dy}px)`;
@@ -781,19 +800,24 @@ new Phaser.Game({
       touchInput.right = dx >  DEAD;
       touchInput.up    = dy < -DEAD;
     };
-    stick.addEventListener('touchstart', e => e.preventDefault(), { passive:false });
-    stick.addEventListener('pointerdown', e => {
+    zone.addEventListener('touchstart', e => e.preventDefault(), { passive:false });
+    zone.addEventListener('pointerdown', e => {
       stickId = e.pointerId;
-      if (stick.setPointerCapture) stick.setPointerCapture(e.pointerId);
-      stickMove(e.clientX, e.clientY);
+      if (zone.setPointerCapture) zone.setPointerCapture(e.pointerId);
+      originX = e.clientX; originY = e.clientY;          // 以按下點為原點
+      const zr = zone.getBoundingClientRect();
+      stick.style.left = (e.clientX - zr.left - 74) + 'px';  // 把搖桿底座移到手指處
+      stick.style.top  = (e.clientY - zr.top  - 74) + 'px';
+      stick.classList.add('on');
+      knob.style.transform = 'translate(0px,0px)';
     });
-    stick.addEventListener('pointermove', e => {
-      if (e.pointerId !== stickId) return;       // 只追蹤啟動搖桿的那根手指
-      stickMove(e.clientX, e.clientY);
+    zone.addEventListener('pointermove', e => {
+      if (e.pointerId !== stickId) return;              // 只追蹤啟動搖桿的那根手指
+      stickUpdate(e.clientX, e.clientY);
     });
     const stickEnd = e => { if (e.pointerId === stickId) { stickId = null; stickReset(); } };
-    stick.addEventListener('pointerup',     stickEnd);
-    stick.addEventListener('pointercancel', stickEnd);
+    zone.addEventListener('pointerup',     stickEnd);
+    zone.addEventListener('pointercancel', stickEnd);
   }
 
   function updateOrientation(){
