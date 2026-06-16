@@ -1,0 +1,32 @@
+## Why
+
+目前 `electric_volleyball.html` 僅支援鍵盤輸入（方向鍵、WASD、Space/Z），手機沒有實體鍵盤，因此在手機上完全無法操作。雖然 Phaser 已使用 `Scale.FIT` 自動縮放畫布，但「縮放」只解決顯示問題，無法產生輸入。要讓遊戲在手機上可玩，必須補上觸控輸入層、行動裝置版面與橫向（landscape）處理三個面向。
+
+回答需求中的疑問：**只做 RWD 不夠**。RWD 只讓畫布等比縮放、適應螢幕寬度，但手機沒有方向鍵，仍無法移動與扣殺。因此本變更採「RWD 版面 + 觸控操作面板 + 橫向閘門」三層方案，缺一不可。
+
+## What Changes
+
+- 新增**觸控操作面板**（HTML/CSS overlay）：左下方向鈕（←/→，含 ↑ 跳躍）、右下動作鈕（跳躍鈕 + 扣殺/撲球鈕）。撲球沿用桌面版「扣殺鈕 + 左右方向」邏輯，與既有手感一致。
+- 將 `GameScene` 輸入來源**抽象化**：把目前直接讀取 Phaser Key 物件 `.isDown` 的方式，改為讀取統一的「輸入狀態物件」，使觸控與鍵盤共用同一條 `_controlHuman` 控制路徑與既有三向分流（強殺／撲球／揮空）。**不改變任何遊戲玩法數值與物理行為**。
+- 新增**橫向閘門（orientation gate）**：偵測到直向（portrait）時，覆蓋半透明「請將手機轉為橫向」提示並暫停輸入；轉為橫向後自動進入遊戲。
+- 新增**行動裝置版面（RWD / viewport）**：調整 `<meta viewport>` 與頁面 CSS，使橫向時遊戲畫布盡量填滿可視區域、隱藏會佔用垂直空間的標題與鍵盤說明，桌面版外觀維持不變。
+- 調整 `MenuScene`：在觸控/行動裝置上提供可點擊的模式選擇，且**手機僅顯示單人模式（普通／困難）**，不顯示 2P 同機對戰（桌面版維持 1/2/3 三選項）。
+- 觸控面板**僅在偵測為觸控裝置時顯示**；純鍵盤桌面環境不顯示，避免干擾既有體驗。
+
+## Capabilities
+
+### New Capabilities
+- `touch-controls`: 觸控操作面板與輸入抽象層——定義虛擬按鈕的版面（左下方向 + 右下動作）、多點觸控行為（可同時按方向與動作）、以及將觸控狀態映射為與鍵盤等價之統一輸入狀態的契約。
+- `mobile-layout`: 行動裝置版面與橫向閘門——定義觸控裝置偵測、`<meta viewport>` 與頁面 RWD 行為、橫向/直向偵測、直向時的「請橫向」提示與輸入暫停，以及橫向時遊戲區域最大化的版面規則。
+
+### Modified Capabilities
+- `game-scene`: 「輸入系統使用 Phaser Keyboard API」需求調整為「輸入系統使用統一輸入狀態抽象」——鍵盤與觸控皆映射至同一輸入狀態，`_controlHuman` 的三向分流與所有玩法數值維持不變。
+- `menu-scene`: 模式選擇需求調整為支援觸控點擊選單，且在行動/觸控裝置上僅提供單人模式選項；桌面鍵盤行為（按 1/2/3）保留。
+
+## Impact
+
+- **受影響檔案**：唯一程式檔 `electric_volleyball.html`（HTML 結構、CSS、`<head>` viewport、`MenuScene`、`GameScene` 輸入層）。
+- **受影響規格**：新增 `specs/touch-controls/spec.md`、`specs/mobile-layout/spec.md`；修改 `game-scene`、`menu-scene` 之 delta。
+- **相依性**：維持 Phaser 3 CDN，不引入新外部相依套件；橫向偵測使用瀏覽器原生 API（`matchMedia` / `orientation`），不依賴需特殊權限的 `screen.orientation.lock`。
+- **相容性與取捨**：桌面鍵盤體驗與所有玩法數值、物理、AI 行為完全不變（純疊加觸控與版面層）。手機暫不支援 2P 同機對戰（單一手機雙人操作體驗差），列為非目標，未來可另案處理。
+- **風險**：iOS Safari 對全螢幕與 orientation API 支援有限，需以提示而非強制鎖定處理；多點觸控與既有 `pointerdown`（點擊開始/繼續）事件需避免衝突。
