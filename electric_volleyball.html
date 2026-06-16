@@ -361,7 +361,7 @@ class GameScene extends Phaser.Scene {
     this.particles = [];
     this.clouds    = [{x:120,y:70,s:1},{x:420,y:110,s:.7},{x:700,y:60,s:1.2},{x:830,y:140,s:.6}];
     this.players   = [makePlayer(0), makePlayer(1)];
-    this.ball      = { x:0, y:0, vx:0, vy:0, r:22, spin:0, trail:[], smash:0 };
+    this.ball      = { x:0, y:0, vx:0, vy:0, r:28, spin:0, trail:[], smash:0 };
     this.serveTimer = 0; this.pointTimer = 0; this.pointSide = 0;
 
     this._resetRally(Math.random() < 0.5 ? 0 : 1);
@@ -768,7 +768,7 @@ new Phaser.Game({
 
     // 移動搖桿：類比偏移映射為布林 left/right/up（過門檻才觸發），
     // 使 _controlHuman 與所有玩法數值維持不變。上推 = 跳躍。
-    const RADIUS = 56, DEAD = 16;
+    const RADIUS = 64, DEAD = 30;   // 加大死區，降低靈敏度、較好操控
     let stickId = null;
     const stickMove = (cx, cy) => {
       const r = stick.getBoundingClientRect();
